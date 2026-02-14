@@ -1,0 +1,20 @@
+audio:
+  sample_rate: 44100
+  chunk_size: 2048
+  device_index: null  # null for default, or specific device number
+
+analysis:
+  bass_range: [0, 50]      # FFT bin range
+  mids_range: [50, 150]
+  highs_range: [150, 300]
+  smoothing_window: 5
+
+colors:
+  sensitivity: 1.0
+  brightness: 1.0
+  mode: "balanced"  # balanced, bass_heavy, treble_focus
+
+usb:
+  vendor_id: null   # e.g., 0x1234
+  product_id: null  # e.g., 0x5678
+  simulate: true    # Set to false when USB device is configured

@@ -108,7 +108,7 @@ class USBController:
         if self.device is not None:
             try:
                 usb.util.dispose_resources(self.device)
-            except:
+            except Exception:
                 pass
             self.device = None
     
@@ -124,8 +124,8 @@ class USBController:
                 try:
                     print(f"  Manufacturer: {device.manufacturer}")
                     print(f"  Product: {device.product}")
-                except:
+                except Exception:
                     pass
-            except:
+            except Exception:
                 pass
         print("-" * 60)

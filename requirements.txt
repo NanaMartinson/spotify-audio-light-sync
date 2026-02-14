@@ -1,0 +1,6 @@
+pyaudio>=0.2.13
+numpy>=1.21.0
+scipy>=1.7.0
+pyusb>=1.2.1
+PyYAML>=6.0
+colorama>=0.4.6

@@ -8,7 +8,7 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
 
 setup(
     name="spotify-audio-light-sync",
-    version="1.0.0",
+    version="1.1.0",
     author="NanaMartinson",
     description="Sync USB RGB lights with Spotify audio in real-time",
     long_description=long_description,

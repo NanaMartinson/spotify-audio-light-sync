@@ -70,3 +70,7 @@ Thumbs.db
 
 # Config overrides (keep default in repo)
 config/settings.local.yaml
+
+# Spotify credentials and cache
+.env
+.spotify_cache

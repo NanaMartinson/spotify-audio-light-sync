@@ -3,16 +3,20 @@ Main application for Spotify Audio-Reactive USB Light Sync.
 """
 
 import argparse
+import os
 import sys
 import time
 import yaml
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+from dotenv import load_dotenv
 
 from audio_capture import AudioCapture
 from audio_analysis import AudioAnalyzer
 from color_mapper import ColorMapper
 from usb_controller import USBController
+from spotify_client import SpotifyClient
+from spotify_color_mapper import SpotifyColorMapper
 
 
 class AudioLightSync:
@@ -197,6 +201,190 @@ class AudioLightSync:
         print("=" * 60)
 
 
+class SpotifyLightSync:
+    """Spotify API mode for light sync using track audio features."""
+    
+    def __init__(self, config: Dict[str, Any], spotify_config: Dict[str, Any]):
+        """
+        Initialize Spotify light sync application.
+        
+        Args:
+            config: Main configuration dictionary
+            spotify_config: Spotify-specific configuration
+        """
+        self.config = config
+        self.spotify_config = spotify_config
+        self.running = False
+        
+        # Initialize Spotify client
+        client_id = spotify_config.get('client_id')
+        client_secret = spotify_config.get('client_secret')
+        redirect_uri = spotify_config.get('redirect_uri', 'http://localhost:8888/callback')
+        
+        if not client_id or not client_secret:
+            raise ValueError("Spotify client_id and client_secret are required")
+        
+        self.spotify_client = SpotifyClient(
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_uri=redirect_uri
+        )
+        
+        # Initialize color mapper
+        color_mode = spotify_config.get('color_mode', 'mood')
+        self.color_mapper = SpotifyColorMapper(mode=color_mode)
+        
+        # Initialize USB controller
+        usb_config = config.get('usb', {})
+        self.usb_controller = USBController(
+            vendor_id=usb_config.get('vendor_id'),
+            product_id=usb_config.get('product_id'),
+            simulate=usb_config.get('simulate', True)
+        )
+        
+        # Polling configuration
+        self.poll_interval = spotify_config.get('poll_interval', 3)
+        
+        # State tracking
+        self.last_track_id = None
+        self.current_rgb = (0, 0, 0)
+        self.verbose = False
+    
+    def start(self, verbose: bool = False) -> bool:
+        """
+        Start the Spotify light sync.
+        
+        Args:
+            verbose: Enable verbose output
+            
+        Returns:
+            True if started successfully, False otherwise
+        """
+        self.verbose = verbose
+        
+        # Connect to USB device
+        if not self.usb_controller.connect():
+            print("Failed to connect to USB controller")
+            return False
+        
+        print("\n" + "=" * 60)
+        print("Spotify API Light Sync - STARTED")
+        print("=" * 60)
+        print(f"Color mode: {self.color_mapper.mode}")
+        print(f"Poll interval: {self.poll_interval}s")
+        print("\nWaiting for Spotify playback...")
+        print("Press Ctrl+C to stop\n")
+        
+        self.running = True
+        return True
+    
+    def run(self):
+        """Main event loop for Spotify mode."""
+        try:
+            while self.running:
+                # Check if playing
+                if not self.spotify_client.is_playing():
+                    if self.verbose:
+                        print("\rNo playback detected...", end='', flush=True)
+                    time.sleep(self.poll_interval)
+                    continue
+                
+                # Get current track
+                track_info = self.spotify_client.get_current_track()
+                if track_info is None:
+                    time.sleep(self.poll_interval)
+                    continue
+                
+                track_id, track_name, artist_name = track_info
+                
+                # Check if track changed
+                if track_id != self.last_track_id:
+                    self.last_track_id = track_id
+                    
+                    # Fetch audio features for new track
+                    audio_features = self.spotify_client.get_audio_features(track_id)
+                    
+                    if audio_features is not None:
+                        # Map to RGB
+                        r, g, b = self.color_mapper.map_to_rgb(audio_features)
+                        self.current_rgb = (r, g, b)
+                        
+                        # Update USB light
+                        self.usb_controller.set_color(r, g, b)
+                        
+                        # Display status
+                        self.display_status(track_name, artist_name, audio_features, r, g, b)
+                    else:
+                        print(f"\nCould not fetch audio features for: {track_name}")
+                
+                # Wait before next poll
+                time.sleep(self.poll_interval)
+                
+        except KeyboardInterrupt:
+            print("\n\nStopping...")
+        finally:
+            self.stop()
+    
+    def display_status(self, track_name: str, artist_name: str,
+                      audio_features: Dict[str, float], r: int, g: int, b: int):
+        """
+        Display current status in terminal.
+        
+        Args:
+            track_name: Name of current track
+            artist_name: Artist name
+            audio_features: Audio features dictionary
+            r, g, b: RGB values
+        """
+        # Create color bar visualization
+        color_str = f"\033[48;2;{r};{g};{b}m"
+        reset_str = "\033[0m"
+        color_bar = f"{color_str}{'  ' * 10}{reset_str}"
+        
+        # Clear terminal
+        print("\n" + "=" * 60)
+        print(f"🎵  Now Playing: {track_name}")
+        print(f"👤  Artist: {artist_name}")
+        print("=" * 60)
+        
+        # Display RGB color
+        print(f"\nRGB: ({r:3d}, {g:3d}, {b:3d}) {color_bar}")
+        
+        # Display audio features
+        print(f"\nAudio Features:")
+        print(f"  Energy:          {audio_features['energy']:.2f} {self._create_bar(audio_features['energy'], 15)}")
+        print(f"  Valence (mood):  {audio_features['valence']:.2f} {self._create_bar(audio_features['valence'], 15)}")
+        print(f"  Danceability:    {audio_features['danceability']:.2f} {self._create_bar(audio_features['danceability'], 15)}")
+        print(f"  Acousticness:    {audio_features['acousticness']:.2f} {self._create_bar(audio_features['acousticness'], 15)}")
+        print(f"  Instrumentalness: {audio_features['instrumentalness']:.2f} {self._create_bar(audio_features['instrumentalness'], 15)}")
+        print(f"  Tempo:           {audio_features['tempo']:.1f} BPM")
+        print("\n")
+    
+    @staticmethod
+    def _create_bar(value: float, width: int = 15) -> str:
+        """
+        Create ASCII bar visualization.
+        
+        Args:
+            value: Value between 0.0 and 1.0
+            width: Width of bar in characters
+            
+        Returns:
+            ASCII bar string
+        """
+        filled = int(value * width)
+        bar = '█' * filled + '░' * (width - filled)
+        return bar
+    
+    def stop(self):
+        """Stop the application."""
+        self.running = False
+        self.usb_controller.disconnect()
+        print("\n" + "=" * 60)
+        print("Stopped")
+        print("=" * 60)
+
+
 def load_config(config_path: str) -> Dict[str, Any]:
     """
     Load configuration from YAML file.
@@ -241,6 +429,9 @@ def list_audio_devices():
 
 def main():
     """Main entry point."""
+    # Load environment variables
+    load_dotenv()
+    
     parser = argparse.ArgumentParser(
         description='Spotify Audio-Reactive USB Light Sync',
         formatter_class=argparse.RawDescriptionHelpFormatter
@@ -283,6 +474,38 @@ def main():
         help='Enable verbose debug output'
     )
     
+    # Spotify mode arguments
+    parser.add_argument(
+        '--spotify',
+        action='store_true',
+        help='Use Spotify API mode instead of audio capture'
+    )
+    
+    parser.add_argument(
+        '--spotify-client-id',
+        type=str,
+        help='Spotify app client ID (or set SPOTIFY_CLIENT_ID env var)'
+    )
+    
+    parser.add_argument(
+        '--spotify-client-secret',
+        type=str,
+        help='Spotify app client secret (or set SPOTIFY_CLIENT_SECRET env var)'
+    )
+    
+    parser.add_argument(
+        '--spotify-redirect-uri',
+        type=str,
+        help='OAuth redirect URI (default: http://localhost:8888/callback, or set SPOTIFY_REDIRECT_URI env var)'
+    )
+    
+    parser.add_argument(
+        '--spotify-color-mode',
+        type=str,
+        choices=['mood', 'energy', 'genre_feel'],
+        help='Spotify color mapping mode (mood, energy, genre_feel)'
+    )
+    
     args = parser.parse_args()
     
     # List devices and exit if requested
@@ -323,6 +546,13 @@ def main():
                 'vendor_id': None,
                 'product_id': None,
                 'simulate': True
+            },
+            'spotify': {
+                'client_id': None,
+                'client_secret': None,
+                'redirect_uri': 'http://localhost:8888/callback',
+                'poll_interval': 3,
+                'color_mode': 'mood'
             }
         }
         
@@ -342,11 +572,57 @@ def main():
     if args.sensitivity is not None:
         config['colors']['sensitivity'] = args.sensitivity
     
-    # Create and run application
-    app = AudioLightSync(config)
-    
-    if app.start(verbose=args.verbose):
-        app.run()
+    # Handle Spotify mode
+    if args.spotify:
+        # Prepare Spotify configuration with environment variables and CLI overrides
+        spotify_config = config.get('spotify', {})
+        
+        # Environment variables take precedence over config, CLI args take precedence over all
+        spotify_config['client_id'] = (
+            args.spotify_client_id or 
+            os.getenv('SPOTIFY_CLIENT_ID') or 
+            spotify_config.get('client_id')
+        )
+        
+        spotify_config['client_secret'] = (
+            args.spotify_client_secret or 
+            os.getenv('SPOTIFY_CLIENT_SECRET') or 
+            spotify_config.get('client_secret')
+        )
+        
+        spotify_config['redirect_uri'] = (
+            args.spotify_redirect_uri or 
+            os.getenv('SPOTIFY_REDIRECT_URI') or 
+            spotify_config.get('redirect_uri', 'http://localhost:8888/callback')
+        )
+        
+        if args.spotify_color_mode:
+            spotify_config['color_mode'] = args.spotify_color_mode
+        
+        # Validate required credentials
+        if not spotify_config.get('client_id') or not spotify_config.get('client_secret'):
+            print("Error: Spotify client_id and client_secret are required for --spotify mode")
+            print("\nProvide them via:")
+            print("  1. Command line: --spotify-client-id ID --spotify-client-secret SECRET")
+            print("  2. Environment: SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET")
+            print("  3. Config file: config/settings.yaml")
+            print("\nGet credentials at: https://developer.spotify.com/dashboard")
+            return
+        
+        # Create and run Spotify app
+        try:
+            app = SpotifyLightSync(config, spotify_config)
+            if app.start(verbose=args.verbose):
+                app.run()
+        except Exception as e:
+            print(f"Error: {e}")
+            return
+    else:
+        # Create and run audio capture app (original mode)
+        app = AudioLightSync(config)
+        
+        if app.start(verbose=args.verbose):
+            app.run()
 
 
 if __name__ == '__main__':

@@ -18,3 +18,10 @@ usb:
   vendor_id: null   # e.g., 0x1234
   product_id: null  # e.g., 0x5678
   simulate: true    # Set to false when USB device is configured
+
+spotify:
+  client_id: null      # Your Spotify app client ID
+  client_secret: null   # Your Spotify app client secret
+  redirect_uri: "http://localhost:8888/callback"
+  poll_interval: 3      # Seconds between polling Spotify API
+  color_mode: "mood"    # mood, energy, genre_feel

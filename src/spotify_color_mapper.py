@@ -126,7 +126,7 @@ class SpotifyColorMapper:
         # Apply acoustic shift if enabled (shift towards green/warm tones)
         if self.mode_config['apply_acoustic_shift'] and acousticness > 0.7:
             # Shift hue slightly towards green (0.33)
-            shift_amount = (acousticness - 0.7) * 0.1  # Max shift of 0.03
+            shift_amount = (acousticness - 0.7) * 0.1  # Shift 0 to 0.03 (max at acousticness=1.0)
             hue = (hue + shift_amount) % 1.0
         
         return hue
@@ -155,7 +155,7 @@ class SpotifyColorMapper:
         # Apply instrumental ambient feel if enabled
         if self.mode_config['apply_instrumental_ambient'] and instrumentalness > 0.7:
             # Reduce saturation for more ambient feel
-            reduction = (instrumentalness - 0.7) * 0.3  # Max reduction of 0.09
+            reduction = (instrumentalness - 0.7) * 0.3  # Reduction 0 to 0.09 (max at instrumentalness=1.0)
             saturation = max(0.3, saturation - reduction)
         
         return saturation
